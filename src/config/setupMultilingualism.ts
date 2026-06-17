@@ -7,8 +7,8 @@ import { LanguageDetector } from "i18next-http-middleware";
  * Установить модуль для мультиязычности через i18next
  */
 i18next.use(LanguageDetector).init({
-  fallbackLng: "ru", // Язык по умолчанию
-  defaultNS: "ru", // Локализация по умолчанию
+  fallbackLng: "en", // Язык по умолчанию
+  defaultNS: "us", // Локализация по умолчанию
   resources: {
     en: { us },
     ru: { ru },

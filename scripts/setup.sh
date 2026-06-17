@@ -517,14 +517,19 @@ setup_env() {
     fi
   done
   
-  # Публичный IP
-  local auto_public_ip
-  auto_public_ip=$(get_public_ip)
-  if [ -n "$auto_public_ip" ]; then
-    upsert_env_var SERVER_PUBLIC_HOST "$auto_public_ip"
-    ok "SERVER_PUBLIC_HOST установлен: $auto_public_ip"
+  # Публичный IP — ввод пользователем (возможность пропустить)
+  local current_public input_public
+  current_public="$(get_env_var SERVER_PUBLIC_HOST)"
+  read -r -p "$(printf "%b" "${C_BOLD}Введите SERVER_PUBLIC_HOST${C_RESET} [${current_public:-пропустить}]: ")" input_public || true
+  if [ -n "$input_public" ]; then
+    upsert_env_var SERVER_PUBLIC_HOST "$input_public"
+    ok "SERVER_PUBLIC_HOST установлен: $input_public"
   else
-    warn "Не удалось автоматически определить внешний IP для SERVER_PUBLIC_HOST"
+    if [ -n "$current_public" ]; then
+      info "SERVER_PUBLIC_HOST оставлен без изменений"
+    else
+      info "SERVER_PUBLIC_HOST не задан (пропущено)"
+    fi
   fi
   
   # Описание
