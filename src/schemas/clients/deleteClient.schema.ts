@@ -3,7 +3,6 @@ import { Protocol, AppFastifySchema } from "@/types/shared";
 import { clientIdSchema, protocolSchema } from "./common.schema";
 
 export const deleteClientSchema = {
-  tags: [SwaggerContract.Tags.CLIENTS],
   summary: "Удалить клиента",
   body: {
     type: "object",

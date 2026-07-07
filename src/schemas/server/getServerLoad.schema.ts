@@ -2,7 +2,6 @@ import { AppFastifySchema } from "@/types/shared";
 import { SwaggerContract } from "@/contracts/swagger";
 
 export const getServerLoadSchema = {
-  tags: [SwaggerContract.Tags.SERVER],
   summary: "Получить метрики нагрузки сервера",
   response: {
     200: {

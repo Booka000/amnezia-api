@@ -2,7 +2,6 @@ import { SwaggerContract } from "@/contracts/swagger";
 import { Protocol, AppFastifySchema } from "@/types/shared";
 
 export const getServerSchema = {
-  tags: [SwaggerContract.Tags.SERVER],
   summary: "Информация о текущем сервере",
   response: {
     200: {

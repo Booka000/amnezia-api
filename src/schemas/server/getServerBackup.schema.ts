@@ -32,7 +32,6 @@ const clientsTableItemSchema = {
 } as const;
 
 export const getServerBackupSchema = {
-  tags: [SwaggerContract.Tags.SERVER],
   summary: "Резервная копия конфигурации сервера",
   response: {
     200: {

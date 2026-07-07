@@ -4,7 +4,6 @@ import { Protocol, AppFastifySchema } from "@/types/shared";
 import { clientIdSchema, protocolSchema } from "./common.schema";
 
 export const updateClientSchema = {
-  tags: [SwaggerContract.Tags.CLIENTS],
   summary: "Обновить данные клиента",
   body: {
     type: "object",

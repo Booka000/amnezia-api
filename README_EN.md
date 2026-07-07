@@ -8,7 +8,7 @@
 
 [Русский](README.md) · **English**
 
-REST API for remote management of an **Amnezia**-based VPN server. It turns Amnezia's CLI management (AmneziaWG, AmneziaWG 2.0, Xray) into a convenient HTTP interface with typed schemas and Swagger out of the box.
+REST API for remote management of an **Amnezia**-based VPN server. It turns Amnezia's CLI management (AmneziaWG, AmneziaWG 2.0, Xray) into a convenient HTTP interface with typed schemas and request validation out of the box.
 
 Great for building your own infrastructure on top of Amnezia: an admin panel, a Telegram bot, billing, or balancing across multiple servers — without SSH-ing into the box.
 
@@ -23,7 +23,6 @@ Great for building your own infrastructure on top of Amnezia: an admin panel, a 
 - **Server metrics** — CPU, RAM, disk, network, load average, uptime and Docker container stats for the VPN.
 - **Backup & restore** — export and import the server configuration via API.
 - **Balancing** — server weight, region and client limit in the `/server` response for routing across nodes.
-- **Swagger UI** at `/docs` with schemas, examples and request validation.
 - **Localized** responses (en/ru) and API-key authentication.
 
 ## Supported protocols
@@ -43,13 +42,13 @@ git clone https://github.com/kyoresuas/amnezia-api.git
 # Go to repo
 cd ./amnezia-api
 
-# Run installer (asks for pm2 or docker mode)
+# Run installer (Docker)
 bash ./scripts/setup.sh
 ```
 
-The script installs dependencies, generates `.env`, starts the API and configures nginx. After install the API is available at `http://<your_server>`.
+The script installs Docker, generates `.env`, starts the API in a container and configures nginx with HTTPS via Let's Encrypt. The domain must point to this server. After install the API is available at `https://<your_domain>/`.
 
-### Run with Docker
+### Manual run with Docker
 
 ```bash
 docker compose up -d --build
@@ -71,15 +70,18 @@ The `.env` file is generated automatically from `.env.example` on the first `set
 | `SERVER_REGION`      | Server region/zone/label                                 |
 | `SERVER_WEIGHT`      | Server weight for balancing (recommended `1..1000`)      |
 | `SERVER_MAX_PEERS`   | Maximum number of clients per server                     |
-| `SERVER_PUBLIC_HOST` | External host/domain for the `Endpoint`                  |
+| `SERVER_PUBLIC_HOST` | External host/domain for the `Endpoint` (domain for HTTPS) |
+| `LETSENCRYPT_EMAIL`  | Email for the Let's Encrypt certificate (used by setup.sh) |
 
 ## Authentication
 
-All routes (except `/healthz`, `/metrics`, `/docs`) are protected by a preHandler and require the header:
+All routes, including `/healthz` and `/metrics`, are protected by a global preHandler and require the header:
 
 ```
 x-api-key: <FASTIFY_API_KEY>
 ```
+
+Without the key, a browser or any other client gets a `401` JSON — the API never serves HTML, Swagger UI or any enumerable endpoint without authorization.
 
 ## Endpoints
 
@@ -190,11 +192,7 @@ curl http://<your_server>/server \
 
 ## API documentation
 
-Swagger UI is available at **`/docs`**:
-
-- `http://<your_server>/docs`
-
-There you can review all schemas, parameters, request examples and responses.
+OpenAPI/Swagger UI is no longer served (it used to live at `/docs`). Schemas and request examples are collected in this README and defined in `src/schemas/*` alongside the inferred types (`as const satisfies AppFastifySchema`).
 
 ## Project structure
 

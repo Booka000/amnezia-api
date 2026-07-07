@@ -5,8 +5,6 @@ readonly APP_NAME="amnezia-api"
 readonly ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 readonly ENV_EXAMPLE="$ROOT_DIR/.env.example"
 readonly ENV_FILE="$ROOT_DIR/.env"
-IS_UPDATE=0
-INSTALL_MODE="" # pm2 | docker
 STEP_NUM=0 # текущий номер шага
 
 LOG_FILE="$(mktemp /tmp/amnezia-api-setup.XXXXXX.log 2>/dev/null || echo "/tmp/amnezia-api-setup.$$.$RANDOM.log")"
@@ -120,71 +118,6 @@ run_quiet() {
   return 1
 }
 
-# Определяет режим уже запущенного сервиса
-detect_running_mode() {
-  # docker: контейнер amnezia-api
-  if command -v docker >/dev/null 2>&1 \
-    && $SUDO docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$APP_NAME"; then
-    printf "docker"
-    return 0
-  fi
-
-  # pm2: процесс amnezia-api
-  if command -v pm2 >/dev/null 2>&1 \
-    && pm2 jlist 2>/dev/null | grep -q "\"name\":\"$APP_NAME\""; then
-    printf "pm2"
-    return 0
-  fi
-
-  return 0
-}
-
-# Выбор режима установки/запуска
-choose_install_mode() {
-  # На обновлении определяем режим по уже запущенному сервису
-  if [ "${IS_UPDATE:-0}" -eq 1 ]; then
-    local detected
-    detected="$(detect_running_mode)"
-    if [ -n "$detected" ]; then
-      INSTALL_MODE="$detected"
-      kv "Режим" "$INSTALL_MODE (автоопределен)"
-      return 0
-    fi
-  fi
-
-  # Если нет TTY, по умолчанию pm2
-  if [ ! -t 0 ]; then
-    INSTALL_MODE="pm2"
-    kv "Режим установки" "pm2"
-    return 0
-  fi
-
-  local input
-  section "Как запустить ${APP_NAME}?"
-  info "1) pm2"
-  info "2) docker (docker compose)"
-  hr
-  read -r -p "$(printf "%b" "${C_BOLD}Выберите [1/2] (по умолчанию 1): ${C_RESET}")" input || true
-
-  case "${input:-1}" in
-    2|docker|Docker|DOCKER)
-      INSTALL_MODE="docker"
-      ;;
-    1|pm2|PM2|"")
-      INSTALL_MODE="pm2"
-      ;;
-    *)
-      INSTALL_MODE="pm2"
-      ;;
-  esac
-
-  if [ "${input:-1}" != "1" ] && [ "${input:-1}" != "2" ] && [ -n "${input:-}" ]; then
-    warn "Неверный выбор '${input}' — используется pm2"
-  fi
-
-  kv "Режим установки" "$INSTALL_MODE"
-}
-
 # Обновляет или добавляет переменную в .env файл
 upsert_env_var() {
   local key="$1" value="$2"
@@ -263,28 +196,6 @@ update_repo() {
   fi
 
   run_quiet "git pull" git -C "$ROOT_DIR" pull --ff-only
-}
-
-# Устанавливает Node.js и pm2
-install_dependencies() {
-  step "Зависимости (pm2)"
-  
-  if ! command -v node >/dev/null 2>&1; then
-    if ! command -v curl >/dev/null 2>&1; then
-      run_quiet "apt update" $SUDO apt-get update -y
-      run_quiet "apt install curl" $SUDO apt-get install -y -qq curl
-    fi
-    run_quiet "Установка Node.js (n lts)" bash -lc 'curl -fsSL https://raw.githubusercontent.com/tj/n/master/bin/n | bash -s lts'
-    hash -r
-  fi
-  
-  ok "Node.js $(node -v 2>/dev/null) / npm $(npm -v 2>/dev/null)"
-
-  if ! command -v pm2 >/dev/null 2>&1; then
-    run_quiet "npm i -g pm2" npm install -g pm2
-  fi
-
-  ok "pm2 $(pm2 -v 2>/dev/null) установлен"
 }
 
 # Установка Docker
@@ -428,58 +339,49 @@ setup_env() {
   local current_routes
   current_routes="$(get_env_var FASTIFY_ROUTES)"
   if [ -z "$current_routes" ] || echo "$current_routes" | grep -qiE '^\s*change-me\s*$'; then
-    if [ "${INSTALL_MODE:-pm2}" = "docker" ]; then
-      upsert_env_var FASTIFY_ROUTES "0.0.0.0:4001"
-      ok "FASTIFY_ROUTES установлен для docker: 0.0.0.0:4001"
-    else
-      upsert_env_var FASTIFY_ROUTES "127.0.0.1:4001"
-      ok "FASTIFY_ROUTES установлен для pm2: 127.0.0.1:4001"
-    fi
+    upsert_env_var FASTIFY_ROUTES "0.0.0.0:4001"
+    ok "FASTIFY_ROUTES установлен для docker: 0.0.0.0:4001"
   else
     :
   fi
 
   # Определяем DOCKER_GID, нужен для доступа к /var/run/docker.sock из API контейнера
-  if [ "${INSTALL_MODE:-pm2}" = "docker" ]; then
-    local current_docker_gid detected_gid
-    current_docker_gid="$(get_env_var DOCKER_GID)"
+  local current_docker_gid detected_gid
+  current_docker_gid="$(get_env_var DOCKER_GID)"
 
-    if [ -z "$current_docker_gid" ] || echo "$current_docker_gid" | grep -qiE '^\s*change-me\s*$'; then
-      detected_gid=""
+  if [ -z "$current_docker_gid" ] || echo "$current_docker_gid" | grep -qiE '^\s*change-me\s*$'; then
+    detected_gid=""
 
-      if [ -S /var/run/docker.sock ]; then
-        detected_gid="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
-      fi
+    if [ -S /var/run/docker.sock ]; then
+      detected_gid="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
+    fi
 
-      if [ -z "$detected_gid" ] && command -v getent >/dev/null 2>&1; then
-        detected_gid="$(getent group docker 2>/dev/null | cut -d: -f3 || true)"
-      fi
+    if [ -z "$detected_gid" ] && command -v getent >/dev/null 2>&1; then
+      detected_gid="$(getent group docker 2>/dev/null | cut -d: -f3 || true)"
+    fi
 
-      if [ -n "$detected_gid" ]; then
-        upsert_env_var DOCKER_GID "$detected_gid"
-        ok "DOCKER_GID: $detected_gid"
-      else
-        warn "Не получилось определить DOCKER_GID"
-      fi
+    if [ -n "$detected_gid" ]; then
+      upsert_env_var DOCKER_GID "$detected_gid"
+      ok "DOCKER_GID: $detected_gid"
+    else
+      warn "Не получилось определить DOCKER_GID"
     fi
   fi
 
-  if [ "${INSTALL_MODE:-pm2}" = "docker" ]; then
-    local current_docker_api detected_api
-    current_docker_api="$(get_env_var DOCKER_API_VERSION)"
+  local current_docker_api detected_api
+  current_docker_api="$(get_env_var DOCKER_API_VERSION)"
 
-    if [ -z "$current_docker_api" ] || echo "$current_docker_api" | grep -qiE '^\s*change-me\s*$'; then
-      detected_api=""
+  if [ -z "$current_docker_api" ] || echo "$current_docker_api" | grep -qiE '^\s*change-me\s*$'; then
+    detected_api=""
 
-      if command -v docker >/dev/null 2>&1; then
-        detected_api="$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)"
-      fi
+    if command -v docker >/dev/null 2>&1; then
+      detected_api="$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)"
+    fi
 
-      if echo "$detected_api" | grep -qE '^[0-9]+\.[0-9]+$'; then
-        upsert_env_var DOCKER_API_VERSION "$detected_api"
-      else
-        upsert_env_var DOCKER_API_VERSION "1.41"
-      fi
+    if echo "$detected_api" | grep -qE '^[0-9]+\.[0-9]+$'; then
+      upsert_env_var DOCKER_API_VERSION "$detected_api"
+    else
+      upsert_env_var DOCKER_API_VERSION "1.41"
     fi
   fi
   
@@ -517,20 +419,35 @@ setup_env() {
     fi
   done
   
-  # Публичный IP — ввод пользователем (возможность пропустить)
-  local current_public input_public
-  current_public="$(get_env_var SERVER_PUBLIC_HOST)"
-  read -r -p "$(printf "%b" "${C_BOLD}Введите SERVER_PUBLIC_HOST${C_RESET} [${current_public:-пропустить}]: ")" input_public || true
-  if [ -n "$input_public" ]; then
-    upsert_env_var SERVER_PUBLIC_HOST "$input_public"
-    ok "SERVER_PUBLIC_HOST установлен: $input_public"
-  else
-    if [ -n "$current_public" ]; then
-      info "SERVER_PUBLIC_HOST оставлен без изменений"
-    else
-      info "SERVER_PUBLIC_HOST не задан (пропущено)"
-    fi
-  fi
+# Домен сервера (используется для Endpoint и Let's Encrypt)
+   local current_public input_public
+   current_public="$(get_env_var SERVER_PUBLIC_HOST)"
+   read -r -p "$(printf "%b" "${C_BOLD}Введите домен сервера (SERVER_PUBLIC_HOST)${C_RESET} [${current_public:-пропустить}]: ")" input_public || true
+   if [ -n "$input_public" ]; then
+     upsert_env_var SERVER_PUBLIC_HOST "$input_public"
+     ok "SERVER_PUBLIC_HOST установлен: $input_public"
+   else
+     if [ -n "$current_public" ]; then
+       info "SERVER_PUBLIC_HOST оставлен без изменений"
+     else
+       info "SERVER_PUBLIC_HOST не задан (пропущено)"
+     fi
+   fi
+
+   # Email для Let's Encrypt
+   local current_email input_email
+   current_email="$(get_env_var LETSENCRYPT_EMAIL)"
+   read -r -p "$(printf "%b" "${C_BOLD}Введите email для Let's Encrypt${C_RESET} [${current_email:-пропустить}]: ")" input_email || true
+   if [ -n "$input_email" ]; then
+     upsert_env_var LETSENCRYPT_EMAIL "$input_email"
+     ok "LETSENCRYPT_EMAIL установлен: $input_email"
+   else
+     if [ -n "$current_email" ]; then
+       info "LETSENCRYPT_EMAIL оставлен без изменений"
+     else
+       info "LETSENCRYPT_EMAIL не задан (пропущено)"
+     fi
+   fi
   
   # Описание
   local current_desc input_desc
@@ -540,12 +457,6 @@ setup_env() {
     local esc_desc="${input_desc//\"/\\\"}"
     upsert_env_var SERVER_NAME "\"$esc_desc\""
   fi
-}
-
-# Деплоит приложение
-deploy_app() {
-  step "Деплой (pm2)"
-  run_quiet "Сборка и запуск" node "$ROOT_DIR/scripts/deploy.js"
 }
 
 # Запуск через docker compose
@@ -584,29 +495,6 @@ deploy_docker() {
   return 1
 }
 
-# Настраивает автозапуск pm2 после ребута
-setup_pm2_startup() {
-  step "Автозапуск pm2"
-
-  if ! command -v pm2 >/dev/null 2>&1; then
-    warn "pm2 не найден — автозапуск пропущен"
-    return 0
-  fi
-
-  local pm2_user pm2_home
-  pm2_user="${SUDO_USER:-${USER:-root}}"
-  pm2_home="$(eval echo "~$pm2_user" 2>/dev/null || echo "${HOME:-/root}")"
-
-  $SUDO env "PATH=$PATH" pm2 startup systemd -u "$pm2_user" --hp "$pm2_home" >/dev/null 2>&1 || true
-
-  if [ -n "$SUDO" ] && [ "$pm2_user" != "${USER:-root}" ]; then
-    $SUDO -u "$pm2_user" env "PATH=$PATH" pm2 save >/dev/null 2>&1 || true
-  else
-    pm2 save >/dev/null 2>&1 || true
-  fi
-  ok "pm2 автозапуск настроен"
-}
-
 # Настройка Xray Stats API
 setup_xray_stats() {
   step "Настройка Xray Stats API"
@@ -639,77 +527,125 @@ setup_xray_stats() {
   ok "Xray Stats API настроен"
 }
 
-# Настраивает Nginx
+# Настраивает Nginx с HTTPS через Let's Encrypt
 setup_nginx() {
-  step "Установка и настройка Nginx"
+  step "Установка и настройка Nginx (HTTPS / Let's Encrypt)"
 
   local site_avail="/etc/nginx/sites-available/$APP_NAME"
   local site_enabled="/etc/nginx/sites-enabled/$APP_NAME"
+  local template="$ROOT_DIR/amnezia-api-nginx-config"
 
-  # На обновлении не трогаем nginx, если он уже настроен и активен
-  if [ "${IS_UPDATE:-0}" -eq 1 ] && [ -f "$site_avail" ] && [ -e "$site_enabled" ] \
+  local domain email
+  domain="$(get_env_var SERVER_PUBLIC_HOST)"
+  email="$(get_env_var LETSENCRYPT_EMAIL)"
+
+  if [ -z "$domain" ]; then
+    err "SERVER_PUBLIC_HOST не задан. Укажите домен в .env и повторите."
+    return 1
+  fi
+
+  # certbot требует домен, а не IP
+  if printf "%s" "$domain" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+    err "SERVER_PUBLIC_HOST '$domain' выглядит как IP-адрес. Для HTTPS требуется домен."
+    return 1
+  fi
+
+  if [ -z "$email" ]; then
+    err "LETSENCRYPT_EMAIL не задан. Укажите email в .env и повторите."
+    return 1
+  fi
+
+  if [ ! -f "$template" ]; then
+    err "Шаблон nginx не найден: $template"
+    return 1
+  fi
+
+  # Если nginx уже настроен с SSL и сертификат существует — не трогаем
+  if [ -f "$site_avail" ] \
+    && grep -q "ssl_certificate" "$site_avail" 2>/dev/null \
+    && [ -d "/etc/letsencrypt/live/$domain" ] \
     && command -v nginx >/dev/null 2>&1 \
     && $SUDO systemctl is-active --quiet nginx 2>/dev/null; then
-    info "Nginx уже настроен"
+    info "Nginx уже настроен с HTTPS для $domain"
     return 0
   fi
 
+  # Установка nginx
   if ! command -v nginx >/dev/null 2>&1; then
     run_quiet "apt update" $SUDO apt-get update -y
     run_quiet "apt install nginx" $SUDO apt-get install -y -qq nginx
   fi
-  
-  $SUDO tee "$site_avail" >/dev/null <<'NGINX'
+
+  # Установка certbot и nginx-плагина
+  if ! command -v certbot >/dev/null 2>&1 || \
+     ! $SUDO dpkg -l python3-certbot-nginx >/dev/null 2>&1; then
+    run_quiet "apt update (certbot)" $SUDO apt-get update -y
+    run_quiet "apt install certbot python3-certbot-nginx" \
+      $SUDO apt-get install -y -qq certbot python3-certbot-nginx
+  fi
+
+  # Временная HTTP-конфигурация для прохождения challenge
+  $SUDO tee "$site_avail" >/dev/null <<HTTP_CONF
 server {
     listen 80;
-    server_name _;
-
+    server_name $domain;
     location / {
         proxy_pass http://127.0.0.1:4001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
-NGINX
-  
+HTTP_CONF
+
   [ ! -e "$site_enabled" ] && $SUDO ln -sfn "$site_avail" "$site_enabled"
   [ -e /etc/nginx/sites-enabled/default ] && $SUDO rm -f /etc/nginx/sites-enabled/default
-  
+
   run_quiet "Проверка конфигурации nginx" $SUDO nginx -t
+  run_quiet "Запуск nginx" bash -c "$SUDO systemctl restart nginx || $SUDO systemctl reload nginx"
+
+  # Получение сертификата Let's Encrypt
+  if ! run_quiet "Получение сертификата Let's Encrypt для $domain" \
+    $SUDO certbot certonly --nginx -d "$domain" \
+      --non-interactive --agree-tos --email "$email"; then
+    err "Не удалось получить сертификат Let's Encrypt для $domain"
+    info "Убедитесь, что домен '$domain' указывает на этот сервер и порт 80 доступен извне."
+    return 1
+  fi
+
+  # Запись финального конфига из шаблона с подстановкой домена
+  local tmp_conf
+  tmp_conf="$(mktemp)"
+  sed -e "s/example\.com/$domain/g" \
+    "$template" > "$tmp_conf"
+  $SUDO cp "$tmp_conf" "$site_avail"
+  rm -f "$tmp_conf"
+
+  run_quiet "Проверка финальной конфигурации nginx" $SUDO nginx -t
+  run_quiet "Перезагрузка nginx" $SUDO systemctl reload nginx
+
   $SUDO systemctl enable nginx >/dev/null 2>&1 || true
-  run_quiet "Перезапуск nginx" bash -c "$SUDO systemctl restart nginx || $SUDO systemctl reload nginx"
 
-  command -v ufw >/dev/null 2>&1 && $SUDO ufw allow 80/tcp >>"$LOG_FILE" 2>&1 || true
+  command -v ufw >/dev/null 2>&1 && {
+    $SUDO ufw allow 80/tcp >>"$LOG_FILE" 2>&1 || true
+    $SUDO ufw allow 443/tcp >>"$LOG_FILE" 2>&1 || true
+  }
 
-  ok "Nginx настроен"
+  ok "Nginx настроен с HTTPS для $domain"
 }
 
 # Показывает финальную информацию
 show_completion() {
   section "Готово"
-  if [ "${IS_UPDATE:-0}" -eq 1 ]; then
-    ok "Обновление завершено"
-  else
-    ok "Установка завершена"
-  fi
+  ok "Установка завершена"
   hr
   line "Полезные команды:"
-  if [ "${INSTALL_MODE:-pm2}" = "docker" ]; then
-    info "docker compose -f $ROOT_DIR/docker-compose.yml ps"
-    info "docker compose -f $ROOT_DIR/docker-compose.yml logs -f --tail 200"
-    info "docker compose -f $ROOT_DIR/docker-compose.yml restart"
-    info "docker compose -f $ROOT_DIR/docker-compose.yml build api"
-    info "docker compose -f $ROOT_DIR/docker-compose.yml up -d --build"
-  else
-    info "pm2 status"
-    info "pm2 logs $APP_NAME --lines 200"
-    info "pm2 restart $APP_NAME"
-    info "pm2 save"
-  fi
+  info "docker compose -f $ROOT_DIR/docker-compose.yml ps"
+  info "docker compose -f $ROOT_DIR/docker-compose.yml logs -f --tail 200"
+  info "docker compose -f $ROOT_DIR/docker-compose.yml restart"
+  info "docker compose -f $ROOT_DIR/docker-compose.yml build api"
+  info "docker compose -f $ROOT_DIR/docker-compose.yml up -d --build"
   
   section "Информация для доступа"
   
@@ -719,11 +655,9 @@ show_completion() {
   api_key="$(get_env_var FASTIFY_API_KEY)"
   
   if [ -n "$public_ip" ]; then
-    kv "API URL" "http://$public_ip/"
-    kv "Swagger" "http://$public_ip/docs"
+    kv "API URL" "https://$public_ip/"
   else
     kv "API URL" "http://localhost/"
-    kv "Swagger" "http://localhost/docs"
   fi
   
   if [ -n "$api_key" ]; then
@@ -735,36 +669,12 @@ show_completion() {
 
 # Основная функция
 main() {
-  if [ -f "$ENV_FILE" ]; then
-    IS_UPDATE=1
-  else
-    IS_UPDATE=0
-  fi
-
   banner
   update_repo
-  choose_install_mode
-
-  if [ "${IS_UPDATE:-0}" -eq 0 ]; then
-    setup_env
-    if [ "${INSTALL_MODE:-pm2}" != "docker" ]; then
-      install_dependencies
-    fi
-  fi
-
-  if [ "${INSTALL_MODE:-pm2}" = "docker" ]; then
-    deploy_docker
-  else
-    deploy_app
-    setup_pm2_startup
-  fi
-
-  if [ "${IS_UPDATE:-0}" -eq 0 ]; then
-    setup_xray_stats
-  fi
-
+  setup_env
+  deploy_docker
+  setup_xray_stats
   setup_nginx
-
   show_completion
 }
 

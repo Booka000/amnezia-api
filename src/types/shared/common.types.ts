@@ -30,7 +30,7 @@ export enum Protocol {
 }
 
 export interface IAppConfig {
-  ENV: "development" | "preproduction" | "production";
+  ENV: "development" | "production";
   FASTIFY_ROUTES: {
     host: string;
     port: number;

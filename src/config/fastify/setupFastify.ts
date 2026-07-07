@@ -7,13 +7,11 @@ import metricsPlugin from "fastify-metrics";
 import { appLogger } from "../winstonLogger";
 import appConfig from "@/constants/appConfig";
 import { AppContract } from "@/contracts/app";
-import fastifySwagger from "@fastify/swagger";
 import fastifyFormbody from "@fastify/formbody";
 import { plugin } from "i18next-http-middleware";
 import fastifyRateLimit from "@fastify/rate-limit";
-import fastifySwaggerUi from "@fastify/swagger-ui";
 import { AppFastifyInstance } from "@/types/shared";
-import { SwaggerContract } from "@/contracts/swagger";
+import { authPreHandler } from "@/middleware/auth";
 import { setupAjvValidator } from "./setupAjvValidator";
 import { setupFastifyRoutes } from "./setupFastifyRoutes";
 import { getFastifyRoutes } from "@/helpers/getFastifyRoutes";
@@ -37,17 +35,6 @@ export const setupFastify = async (): Promise<AppFastifyInstance> => {
   // Установить собственный обработчик ошибок
   fastify.setErrorHandler(fastifyErrorHandler);
 
-  // Порядок регистрации маршрутов для сортировки операций в Swagger UI
-  const routeOrder = new Map<string, number>();
-  fastify.addHook("onRoute", (route) => {
-    const methods = Array.isArray(route.method) ? route.method : [route.method];
-
-    for (const method of methods) {
-      const key = `${method.toUpperCase()} ${route.url}`;
-      if (!routeOrder.has(key)) routeOrder.set(key, routeOrder.size);
-    }
-  });
-
   // Заголовки безопасности
   await fastify.register(fastifyHelmet, { contentSecurityPolicy: false });
 
@@ -63,23 +50,18 @@ export const setupFastify = async (): Promise<AppFastifyInstance> => {
   // Интернационализация и локализация
   await fastify.register(plugin as never, { i18next });
 
-  // Регистрация сваггера
-  await fastify.register(fastifySwagger, SwaggerContract.GetConfig());
-
   // Прочие плагины
   await fastify.register(fastifyCookie);
   await fastify.register(fastifyFormbody);
   await fastify.register(metricsPlugin, { clearRegisterOnInit: true });
   await fastify.register(fastifyCors, { origin: true });
 
+  // Глобальная авторизация — без заголовка x-api-key недоступен ни один маршрут,
+  // включая /healthz и /metrics. Браузеры получают 401 JSON, ничего не отдается.
+  fastify.addHook("preHandler", authPreHandler());
+
   // Регистрация маршрутов
   setupFastifyRoutes(fastify);
-
-  // Регистрация сваггера с порядком маршрутов
-  await fastify.register(
-    fastifySwaggerUi,
-    SwaggerContract.GetConfigUi(routeOrder),
-  );
 
   await fastify.listen({ host, port });
   await fastify.ready();

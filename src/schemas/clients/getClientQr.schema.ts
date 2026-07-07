@@ -2,7 +2,6 @@ import { AppFastifySchema } from "@/types/shared";
 import { SwaggerContract } from "@/contracts/swagger";
 
 export const getClientQrSchema = {
-  tags: [SwaggerContract.Tags.CLIENTS],
   summary: "Сгенерировать QR-коды для конфига клиента",
   description:
     "Возвращает серию QR-кодов (PNG data URI) в формате клиента Amnezia. " +

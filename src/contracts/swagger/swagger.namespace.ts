@@ -9,18 +9,8 @@ import {
   InformationalCode,
 } from "@/types/shared";
 import i18next from "i18next";
-import { FastifySwaggerUiOptions } from "@fastify/swagger-ui";
-import { FastifyDynamicSwaggerOptions } from "@fastify/swagger";
 
 export namespace SwaggerContract {
-  /**
-   * Теги для документации
-   */
-  export enum Tags {
-    CLIENTS = "Clients",
-    SERVER = "Server",
-  }
-
   /**
    * Описания для кодов ответа REST API
    */
@@ -251,105 +241,5 @@ export namespace SwaggerContract {
         },
       },
     } as const satisfies ActionResponseType;
-  };
-
-  export const GetConfig = (): FastifyDynamicSwaggerOptions => {
-    const openapi: FastifyDynamicSwaggerOptions["openapi"] = {
-      openapi: "3.0.0",
-      tags: [],
-      components: {
-        securitySchemes: {
-          ApiKey: {
-            type: "apiKey",
-            in: "header",
-            name: "x-api-key",
-          },
-        },
-      },
-      security: [{ ApiKey: [] }],
-    };
-
-    openapi.info = {
-      title: "Admin API",
-      version: "1.0.0",
-    };
-
-    openapi.tags!.push({
-      name: SwaggerContract.Tags.CLIENTS,
-      description: "Маршруты для управления клиентами",
-    });
-
-    openapi.tags!.push({
-      name: SwaggerContract.Tags.SERVER,
-      description: "Маршруты для управления сервером",
-    });
-
-    return {
-      swagger: {
-        consumes: ["application/json", "text/xml"],
-        produces: ["application/json", "text/xml"],
-      },
-      openapi,
-    };
-  };
-
-  /**
-   * Иммутабельный объект операции, который сваггер передает в сортировщик
-   */
-  interface UiOperation {
-    get(key: "operation"): { get(key: string): number | undefined };
-  }
-
-  /**
-   * Сортировщик операций по полю x-order (порядок регистрации маршрутов)
-   */
-  const operationsSorter = (a: UiOperation, b: UiOperation): number => {
-    const orderA = a.get("operation").get("x-order") ?? Number.MAX_SAFE_INTEGER;
-    const orderB = b.get("operation").get("x-order") ?? Number.MAX_SAFE_INTEGER;
-
-    return orderA - orderB;
-  };
-
-  /**
-   * Получить конфигурацию сваггера
-   */
-  export const GetConfigUi = (
-    routeOrder: Map<string, number>,
-  ): FastifySwaggerUiOptions => {
-    return {
-      routePrefix: "docs",
-      uiConfig: {
-        docExpansion: "list",
-        deepLinking: false,
-        operationsSorter: operationsSorter as unknown as (
-          a: string,
-          b: string,
-        ) => number,
-      },
-      // Проставляем x-order в спеку на сервере, где известен порядок регистрации
-      transformSpecification: (swaggerObject) => {
-        const paths = swaggerObject.paths as
-          | Record<string, Record<string, { ["x-order"]?: number }>>
-          | undefined;
-
-        if (!paths) return swaggerObject as Record<string, unknown>;
-
-        for (const [path, methods] of Object.entries(paths)) {
-          for (const [method, operation] of Object.entries(methods)) {
-            const order = routeOrder.get(`${method.toUpperCase()} ${path}`);
-
-            if (
-              order !== undefined &&
-              operation &&
-              typeof operation === "object"
-            ) {
-              operation["x-order"] = order;
-            }
-          }
-        }
-
-        return swaggerObject as Record<string, unknown>;
-      },
-    };
   };
 }

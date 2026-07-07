@@ -5,10 +5,7 @@
   "scripts": {
     "lint": "npx eslint .",
     "dev": "npx cross-env ENV=development nodemon -q",
-    "build": "npx tsc && npx tsconfig-replace-paths -s ./src",
-    "pre-start": "npx cross-env ENV=preproduction node build/main.js",
-    "start": "npx cross-env ENV=production node dist/main.js",
-    "deploy": "node ./scripts/deploy.js"
+    "build": "npx tsc && npx tsconfig-replace-paths -s ./src"
   },
   "dependencies": {
     "@fastify/cookie": "^10.0.1",
@@ -16,8 +13,6 @@
     "@fastify/formbody": "^8.0.1",
     "@fastify/helmet": "^13.0.2",
     "@fastify/rate-limit": "^10.3.0",
-    "@fastify/swagger": "^9.0.0",
-    "@fastify/swagger-ui": "^5.0.1",
     "@fastify/type-provider-json-schema-to-ts": "^4.0.0",
     "ajv-errors": "^3.0.0",
     "awilix": "^13.0.3",

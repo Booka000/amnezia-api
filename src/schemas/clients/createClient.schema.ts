@@ -3,7 +3,6 @@ import { Protocol, AppFastifySchema } from "@/types/shared";
 import { clientIdSchema, protocolSchema } from "./common.schema";
 
 export const createClientSchema = {
-  tags: [SwaggerContract.Tags.CLIENTS],
   summary: "Создать нового клиента",
   body: {
     type: "object",

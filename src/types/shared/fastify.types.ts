@@ -9,7 +9,6 @@ import {
   RouteGenericInterface,
 } from "fastify";
 import { StatusCodes } from "@/types/shared";
-import { SwaggerContract } from "@/contracts/swagger";
 import { ServerResponse, IncomingMessage } from "http";
 import { JSONSchema, FromSchemaDefaultOptions } from "json-schema-to-ts";
 import { JsonSchemaToTsProvider } from "@fastify/type-provider-json-schema-to-ts";
@@ -45,8 +44,8 @@ export type AppJSONSchema = JSONSchema &
   }>;
 
 export interface AppFastifySchema extends FastifySchema {
-  tags?: SwaggerContract.Tags[];
   summary?: string;
+  description?: string;
   body?: AppJSONSchema;
   querystring?: AppJSONSchema;
   params?: AppJSONSchema;

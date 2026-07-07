@@ -44,7 +44,7 @@ COPY package.json ./
 EXPOSE 4001
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=6 \
-  CMD node -e "fetch('http://127.0.0.1:4001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:4001/healthz',{headers:{'x-api-key':process.env.FASTIFY_API_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/main.js"]
 

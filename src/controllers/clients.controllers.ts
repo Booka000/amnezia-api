@@ -18,7 +18,6 @@ import {
   updateClientHandler,
 } from "@/handlers/clients";
 import { AppFastifyRoute } from "@/types/shared";
-import { authPreHandler } from "@/middleware/auth";
 
 /**
  * Получить всех клиентов
@@ -27,7 +26,6 @@ export const getClientsController: AppFastifyRoute<GetClientsType> = {
   url: "/clients",
   method: "GET",
   schema: getClientsSchema,
-  preHandler: authPreHandler(),
   handler: getClientsHandler,
 };
 
@@ -38,7 +36,6 @@ export const createClientController: AppFastifyRoute<CreateClientType> = {
   url: "/clients",
   method: "POST",
   schema: createClientSchema,
-  preHandler: authPreHandler(),
   handler: createClientHandler,
 };
 
@@ -49,7 +46,6 @@ export const updateClientController: AppFastifyRoute<UpdateClientType> = {
   url: "/clients",
   method: "PATCH",
   schema: updateClientSchema,
-  preHandler: authPreHandler(),
   handler: updateClientHandler,
 };
 
@@ -60,7 +56,6 @@ export const getClientQrController: AppFastifyRoute<GetClientQrType> = {
   url: "/clients/qr",
   method: "POST",
   schema: getClientQrSchema,
-  preHandler: authPreHandler(),
   handler: getClientQrHandler,
 };
 
@@ -71,6 +66,5 @@ export const deleteClientController: AppFastifyRoute<DeleteClientType> = {
   url: "/clients",
   method: "DELETE",
   schema: deleteClientSchema,
-  preHandler: authPreHandler(),
   handler: deleteClientHandler,
 };
