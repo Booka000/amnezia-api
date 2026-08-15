@@ -1,117 +1,185 @@
 # Amnezia API
 
-![Node](https://img.shields.io/badge/node-%3E%3D18-339933?logo=node.js&logoColor=white)
-![Fastify](https://img.shields.io/badge/fastify-5.x-000000?logo=fastify&logoColor=white)
-![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6?logo=typescript&logoColor=white)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Fastify](https://img.shields.io/badge/Fastify-5.x-000000?logo=fastify&logoColor=white)](https://fastify.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![CI](https://github.com/kyoresuas/amnezia-api/actions/workflows/ci.yml/badge.svg)](https://github.com/kyoresuas/amnezia-api/actions/workflows/ci.yml)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![GHCR](https://img.shields.io/badge/GHCR-amnezia--api-2496ED?logo=docker&logoColor=white)](https://github.com/kyoresuas/amnezia-api/pkgs/container/amnezia-api)
+[![License](https://img.shields.io/badge/License-MIT-2ea44f.svg)](LICENSE)
 
-**Русский** · [English](README_EN.md)
+**English** · [Русский](README_RU.md)
 
-REST API для удалённого управления VPN-сервером на базе **Amnezia**. Превращает CLI-управление Amnezia (AmneziaWG, AmneziaWG 2.0, Xray) в удобный HTTP-интерфейс с типизированными схемами и валидацией запросов из коробки.
+**A self-hosted REST API for automating Amnezia VPN servers.** Manage AmneziaWG, AmneziaWG 2.0, and Xray clients through one authenticated HTTP interface—with typed validation, metrics, QR configs, expiration, and backups included.
 
-Подходит для того, чтобы построить поверх Amnezia свою инфраструктуру: админ-панель, Telegram-бота, биллинг или балансировку по нескольким серверам — без ручного захода на сервер.
+Build an admin panel, Telegram bot, billing system, or multi-server control plane without manually SSH-ing into every VPN server.
 
-## Возможности
+[Quick start](#quick-start) · [API reference](#api-reference) · [Security](#security) · [Web panel](https://github.com/slowy19/amnezia-panel)
 
-- **Три протокола в одном API** — AmneziaWG, AmneziaWG 2.0 и Xray через единый набор маршрутов.
-- **Управление клиентами** — создание, список, обновление и удаление пиров; готовый конфиг для импорта в приложение.
-- **Пауза пользователей** — можно временно отключить доступ (`status: disabled`), не удаляя ключ, а затем возобновить (`status: active`). Пользователю не придется заново генерировать конфиг.
-- **QR-коды конфигов** — генерация серии QR (`POST /clients/qr`) в том же формате, что и клиент Amnezia: большие конфиги разбиваются на несколько кодов, приложение Amnezia их сканирует и импортирует.
-- **Срок действия доступа** — поле `expiresAt` у клиента и фоновая задача, автоматически отключающая истёкших клиентов по cron.
-- **Статистика по каждому пиру** — трафик (отдано/принято), последнее рукопожатие, online-статус, endpoint и разрешенные IP.
-- **Метрики сервера** — CPU, RAM, диск, сеть, load average, uptime и статистика Docker-контейнеров VPN.
-- **Бэкап и восстановление** — выгрузка и импорт конфигурации сервера через API.
-- **Балансировка** — вес сервера, регион и лимит клиентов в ответе `/server` для маршрутизации между нодами.
-- **Локализация** ответов (ru/en) и аутентификация по API-ключу.
+![Amnezia API demo](docs/assets/amnezia-api-demo.gif)
 
-## Поддерживаемые протоколы
+## Why Amnezia API?
 
-| Протокол      | Значение `protocol` |
-| ------------- | ------------------- |
-| AmneziaWG     | `amneziawg`         |
-| AmneziaWG 2.0 | `amneziawg2`        |
-| Xray          | `xray`              |
+Amnezia is excellent at deploying a private VPN. Amnezia API adds the automation layer needed when you manage more than a few users or servers.
 
-## Быстрый старт
+| Capability | What it gives you |
+| --- | --- |
+| Unified protocol API | The same client workflow for AmneziaWG, AmneziaWG 2.0, and Xray |
+| Client lifecycle | Create, list, update, disable, resume, and delete clients |
+| Expiration | Automatically disable expired access without invalidating the client config |
+| Ready-to-share configs | Return an Amnezia-compatible `vpn://` config and generate multi-part QR codes |
+| Live visibility | Per-peer traffic, handshake, online status, endpoint, and allowed IPs |
+| Server operations | CPU, RAM, disk, network, load, uptime, Docker stats, backup, restore, and reboot |
+| Automation-ready metadata | Server ID, region, weight, and client limit for external routing and balancing |
+| Developer experience | JSON Schema validation, localized responses, and Prometheus metrics |
+
+## How it fits
+
+```text
+Admin panel · Telegram bot · Billing · Automation
+                       │
+                 HTTPS + x-api-key
+                       │
+             Amnezia API (one per server)
+                       │
+           Existing Amnezia Docker containers
+          AmneziaWG · AmneziaWG 2.0 · Xray
+```
+
+Already have a working Amnezia server? You do **not** need to reinstall its VPN protocols. The installer detects the existing `amnezia-awg`, `amnezia-awg2`, and `amnezia-xray` containers and configures the API around them. On first setup, Xray statistics support may update the Xray config and restart its container.
+
+## Supported protocols
+
+| Protocol | API value | Expected container |
+| --- | --- | --- |
+| AmneziaWG | `amneziawg` | `amnezia-awg` |
+| AmneziaWG 2.0 | `amneziawg2` | `amnezia-awg2` |
+| Xray | `xray` | `amnezia-xray` |
+
+## Requirements
+
+- A Linux server with at least one supported Amnezia protocol already installed.
+- Root or `sudo` access for the guided installer.
+- Debian or Ubuntu for automatic dependency installation.
+- Docker with Compose.
+
+## Quick start
+
+Clone the repository on the VPN server and run the guided installer:
 
 ```bash
-# Клонировать репозиторий
 git clone https://github.com/kyoresuas/amnezia-api.git
-
-# Перейти в репозиторий
-cd ./amnezia-api
-
-# Запустить установку (Docker)
+cd amnezia-api
 bash ./scripts/setup.sh
 ```
 
-Скрипт сам поставит Docker, сгенерирует `.env`, поднимёт API в контейнере и настроит nginx с HTTPS через Let's Encrypt. Домен должен указывать на этот сервер. После установки API доступен на `https://<ваш_домен>/`.
+The installer:
 
-### Ручной запуск через Docker
+1. Detects the installed Amnezia protocols.
+2. Generates a random API key and prepares `.env`.
+3. Prompts for your server domain and a Let's Encrypt email.
+4. Builds and starts the API in Docker.
+5. Configures Nginx with HTTPS via Let's Encrypt (certbot).
+6. Enables Xray statistics when an `amnezia-xray` container is present.
+
+The domain you enter must point to this server. After setup:
+
+```text
+API:    https://<your-domain>/
+Health: https://<your-domain>/healthz
+```
+
+> [!IMPORTANT]
+> The installer terminates TLS at Nginx with a Let's Encrypt certificate. Every route requires the `x-api-key` header. See [Security](#security).
+
+### Docker Compose
+
+For a manual Docker deployment with the prebuilt GHCR image:
+
+```bash
+git clone https://github.com/kyoresuas/amnezia-api.git
+cd amnezia-api
+cp .env.example .env
+```
+
+Generate a strong `FASTIFY_API_KEY`, place it in `.env`, verify the remaining values, then start the service:
+
+```bash
+openssl rand -hex 32
+```
+
+```bash
+docker compose -f docker-compose.ghcr.yml up -d
+docker compose ps
+```
+
+Set `AMNEZIA_API_VERSION` to a release such as `1.0.0` to pin the deployment. It defaults to `latest`.
+
+To build the image locally from source instead:
 
 ```bash
 docker compose up -d --build
 ```
 
-`docker-compose.yml` пробрасывает `docker.sock`, чтобы API мог управлять контейнерами Amnezia на хосте. Конфигурация читается из `.env`.
+Docker Compose binds the API to `127.0.0.1:4001`. Put a TLS-enabled reverse proxy in front of it when remote access is required.
 
-## Конфигурация
+### Updating
 
-Файл `.env` генерируется автоматически из `.env.example` при первом запуске `setup.sh`.
+Run the installer again from the repository directory:
 
-| Переменная           | Описание                                                |
-| -------------------- | ------------------------------------------------------- |
-| `FASTIFY_ROUTES`     | Хост и порт API, например `localhost:4001`              |
-| `FASTIFY_API_KEY`    | Ключ доступа к API (заголовок `x-api-key`)              |
-| `PROTOCOLS_ENABLED`  | Включенные протоколы: `amneziawg,amneziawg2,xray`       |
-| `SERVER_ID`          | Уникальный идентификатор сервера                        |
-| `SERVER_NAME`        | Название сервера (отображается в клиенте)               |
-| `SERVER_REGION`      | Регион/зона/лейбл сервера                               |
-| `SERVER_WEIGHT`      | Вес сервера для балансировки (рекомендуется `1..1000`)  |
-| `SERVER_MAX_PEERS`   | Максимальное число клиентов на сервере                  |
-| `SERVER_PUBLIC_HOST` | Внешний хост/домен для `Endpoint` (домен для HTTPS)     |
-| `LETSENCRYPT_EMAIL`  | Email для сертификата Let's Encrypt (используется setup.sh) |
-
-## Аутентификация
-
-Все маршруты, включая `/healthz` и `/metrics`, защищены глобальным `preHandler`-ом и требуют заголовок:
-
+```bash
+bash ./scripts/setup.sh
 ```
+
+It performs a fast-forward update, rebuilds the Docker image, and preserves the existing `.env`.
+
+## Releases and container images
+
+Every `vX.Y.Z` release publishes a multi-platform image for `linux/amd64` and `linux/arm64`:
+
+```bash
+docker pull ghcr.io/kyoresuas/amnezia-api:latest
+docker pull ghcr.io/kyoresuas/amnezia-api:1.0.0
+```
+
+Stable releases receive `latest`, major, minor, exact, and `v`-prefixed tags. Each image includes OCI metadata, an SBOM, and a GitHub provenance attestation. The corresponding GitHub Release includes generated release notes.
+
+## Authentication
+
+Protected routes require the API key in the `x-api-key` header:
+
+```http
 x-api-key: <FASTIFY_API_KEY>
 ```
 
-Без ключа браузер или любой другой клиент получает `401` JSON — API не отдаёт ни HTML, ни Swagger UI, ни какие-либо перечислимые эндпоинты без авторизации.
+Every route is protected, including `/healthz` and `/metrics`. Without a valid key the API returns `401` JSON — it serves no HTML, no Swagger UI, and no enumerable endpoints to unauthenticated clients.
 
-## Эндпоинты
+## API reference
 
-| Метод    | Маршрут          | Назначение                               |
-| -------- | ---------------- | ---------------------------------------- |
-| `GET`    | `/clients`       | Список клиентов с трафиком и статусами    |
-| `POST`   | `/clients`       | Создать клиента и получить конфиг         |
-| `PATCH`  | `/clients`       | Обновить клиента (статус, срок действия)  |
-| `POST`   | `/clients/qr`    | QR-коды конфига (формат клиента Amnezia)   |
-| `DELETE` | `/clients`       | Удалить клиента                           |
-| `GET`    | `/server`        | Информация о сервере и протоколах         |
-| `GET`    | `/server/load`   | Метрики нагрузки (CPU/RAM/диск/сеть)       |
-| `GET`    | `/server/backup` | Выгрузить бэкап конфигурации              |
-| `POST`   | `/server/backup` | Импортировать бэкап конфигурации          |
-| `POST`   | `/server/reboot` | Перезагрузить сервер                      |
-| `GET`    | `/healthz`       | Healthcheck                               |
-| `GET`    | `/metrics`       | Метрики Prometheus                        |
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/clients` | List clients with traffic and connection status |
+| `POST` | `/clients` | Create a client and return an importable config |
+| `PATCH` | `/clients` | Change status or expiration without rotating the config |
+| `POST` | `/clients/qr` | Generate one or more Amnezia-compatible QR codes |
+| `DELETE` | `/clients` | Delete a client |
+| `GET` | `/server` | Return server identity, capacity, and enabled protocols |
+| `GET` | `/server/load` | Return CPU, RAM, disk, network, and Docker metrics |
+| `GET` | `/server/backup` | Export the server configuration |
+| `POST` | `/server/backup` | Import a server configuration backup |
+| `POST` | `/server/reboot` | Reboot the server |
+| `GET` | `/healthz` | Health check |
+| `GET` | `/metrics` | Prometheus metrics |
 
-## Примеры запросов
+The full request/response schemas, validation rules, and examples are defined in `src/schemas/*` alongside their types (`as const satisfies AppFastifySchema`).
 
-Базовый адрес ниже — `http://<ваш_сервер>`. Подставьте свой ключ в `x-api-key`.
-
-### Создать клиента
+### Create a client
 
 ```bash
-curl -X POST http://<ваш_сервер>/clients \
+curl -X POST "https://vpn.example.com/clients" \
   -H "x-api-key: <FASTIFY_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "clientName": "Kyoresuas",
+    "clientName": "demo-client",
     "protocol": "amneziawg2",
     "expiresAt": null
   }'
@@ -119,118 +187,109 @@ curl -X POST http://<ваш_сервер>/clients \
 
 ```json
 {
-  "message": "Клиент создан",
+  "message": "Client created",
   "client": {
-    "id": "PF77ZXRl1yAkFzhBq/zQNlDPD73XXTq+Zs2PgtjLKVA=",
-    "config": "vpn://3fa85f64-5717-4562-b3fc-2c963f66afa6...",
+    "id": "<client-id>",
+    "config": "vpn://...",
     "protocol": "amneziawg2"
   }
 }
 ```
 
-### Получить список клиентов
+### List clients
 
 ```bash
-curl "http://<ваш_сервер>/clients?skip=0&limit=100" \
+curl "https://vpn.example.com/clients?skip=0&limit=100" \
   -H "x-api-key: <FASTIFY_API_KEY>"
 ```
 
-### Поставить на паузу / возобновить / задать срок
+### Disable or resume a client
 
-`status: disabled` отключает доступ, не удаляя ключ; `status: active` возвращает доступ — конфиг у пользователя остаётся прежним.
+Disabling a client preserves its keys and config. Set `status` back to `active` to restore access.
 
 ```bash
-curl -X PATCH http://<ваш_сервер>/clients \
+curl -X PATCH "https://vpn.example.com/clients" \
   -H "x-api-key: <FASTIFY_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "clientId": "PF77ZXRl1yAkFzhBq/zQNlDPD73XXTq+Zs2PgtjLKVA=",
+    "clientId": "<client-id>",
     "protocol": "amneziawg2",
     "status": "disabled",
-    "expiresAt": 1735689600
+    "expiresAt": null
   }'
 ```
 
-### Сгенерировать QR-коды конфига
+## Configuration
 
-Передайте `config`, полученный при создании клиента. В ответе — массив QR (PNG data URI); для длинных конфигов их несколько, сканируйте по очереди в приложении Amnezia.
+The installer creates `.env` from `.env.example` and fills the most important values automatically.
+
+| Variable | Description |
+| --- | --- |
+| `FASTIFY_ROUTES` | Fastify bind address in `host:port` format |
+| `FASTIFY_API_KEY` | Secret expected in the `x-api-key` header; minimum 32 characters |
+| `CORS_ORIGINS` | Comma-separated browser origins; CORS is disabled when empty |
+| `PROTOCOLS_ENABLED` | Comma-separated list: `amneziawg,amneziawg2,xray` |
+| `SERVER_ID` | Stable unique server identifier |
+| `SERVER_NAME` | Human-readable server name |
+| `SERVER_REGION` | Region, availability zone, or custom label |
+| `SERVER_WEIGHT` | Routing weight; the recommended range is `1..1000` |
+| `SERVER_MAX_PEERS` | Maximum number of clients on this server |
+| `SERVER_PUBLIC_HOST` | Public domain placed into generated endpoints (used for TLS) |
+| `LETSENCRYPT_EMAIL` | Email for the Let's Encrypt certificate (used by `setup.sh`) |
+| `DOCKER_GID` | Docker socket group ID used by Docker mode |
+| `DOCKER_API_VERSION` | Docker Engine API version used by the bundled CLI |
+| `AMNEZIA_API_VERSION` | GHCR image tag used by `docker-compose.ghcr.yml`; defaults to `latest` |
+
+## Security
+
+Amnezia API can modify VPN configuration and control Amnezia containers. Treat it as privileged infrastructure software.
+
+- The guided installer terminates TLS at Nginx with a Let's Encrypt certificate; keep the API behind that TLS endpoint.
+- Every route, including `/healthz` and `/metrics`, requires the `x-api-key` header. There is no unauthenticated surface.
+- Restrict inbound access by IP, private network, or VPN whenever possible.
+- Rotate `FASTIFY_API_KEY` if it may have been exposed.
+- Keep `CORS_ORIGINS` empty for server-to-server use. If a browser client is required, list only its exact `http://` or `https://` origins.
+- Docker mode mounts `/var/run/docker.sock`; access to this socket is highly privileged. Run the API only on a trusted host and keep dependencies updated.
+- Do not publish real API keys, `vpn://` configs, QR codes, backups, or unredacted production responses in issues or screenshots.
+
+The service uses constant-time API-key comparison, rate limiting, request validation, and security headers. These controls do not replace TLS, network isolation, or host hardening.
+
+Report suspected vulnerabilities privately by following the instructions in [SECURITY.md](SECURITY.md). Do not open a public issue for a security report.
+
+## Development
 
 ```bash
-curl -X POST http://<ваш_сервер>/clients/qr \
-  -H "x-api-key: <FASTIFY_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": "vpn://3fa85f64-5717-4562-b3fc-2c963f66afa6..."
-  }'
+npm ci
+npm run dev
 ```
 
-```json
-{
-  "total": 1,
-  "items": ["data:image/png;base64,iVBORw0KGgoAAAANSUhEUg..."]
-}
-```
-
-### Удалить клиента
+Before submitting a change:
 
 ```bash
-curl -X DELETE http://<ваш_сервер>/clients \
-  -H "x-api-key: <FASTIFY_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "clientId": "PF77ZXRl1yAkFzhBq/zQNlDPD73XXTq+Zs2PgtjLKVA=",
-    "protocol": "amneziawg2"
-  }'
+npm run lint
+npm test
+npm run build
 ```
 
-### Информация о сервере
+CI runs lint, tests, and build on Node.js 20, 22, and 24. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
-```bash
-curl http://<ваш_сервер>/server \
-  -H "x-api-key: <FASTIFY_API_KEY>"
-```
+## Ecosystem
 
-## Документация API
+- [amnezia-panel](https://github.com/slowy19/amnezia-panel) — a web administration panel built on top of Amnezia API.
 
-OpenAPI/Swagger UI больше не отдаётся (ранее был на `/docs`). Схемы и примеры запросов собраны в этом README и описаны в `src/schemas/*` вместе с типами (`as const satisfies AppFastifySchema`).
+If you build an integration, bot, SDK, or panel using this API, open an issue or pull request to add it here.
 
-## Структура проекта
+## Project status and support
 
-<details>
-<summary>Показать структуру</summary>
+Bug reports and feature requests are welcome in [GitHub Issues](https://github.com/kyoresuas/amnezia-api/issues).
 
-```
-├─ /scripts [скрипты]
-├─ /src [корень]
-│  ├─ /config [инициализация проекта]
-│  ├─ /constants [константы]
-│  ├─ /contracts [настройки сервисов]
-│  ├─ /controllers [контроллеры для маршрутов API]
-│  ├─ /handlers [обработчики запросов API]
-│  ├─ /helpers [специализированные помощники]
-│  ├─ /locales [файлы перевода]
-│  ├─ /middleware [промежуточное ПО для маршрутов API]
-│  ├─ /schemas [схемы маршрутов API для Swagger и валидации]
-│  ├─ /services [сервисы]
-│  ├─ /tasks [отложенные задачи]
-│  ├─ /types [типизация]
-│  ├─ /utils [вспомогательные функции]
-│  └─ main.ts [файл запуска]
-├─ .env.example [пример конфигурации]
-└─ .env [конфигурация разработчика]
-```
+- Telegram: [@stercuss](https://t.me/stercuss)
+- Email: [hey@kyoresuas.com](mailto:hey@kyoresuas.com)
 
-</details>
+## Disclaimer
 
-## Экосистема
+This is an independent community project. It is not affiliated with, sponsored by, or officially endorsed by the Amnezia project.
 
-- [amnezia-panel](https://github.com/slowy19/amnezia-panel) — веб-панель управления поверх Amnezia API.
+## License
 
-## Связаться со мной
-
-- **Telegram:** @stercuss
-- **Email:** hey@kyoresuas.com
-
-## Лицензия
-
-MIT — см. файл `LICENSE`.
+[MIT](LICENSE)

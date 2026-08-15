@@ -11,7 +11,7 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
-COPY tsconfig.json eslint.config.mjs nodemon.json ./
+COPY tsconfig.base.json tsconfig.build.json eslint.config.mjs nodemon.json ./
 COPY src ./src
 COPY scripts ./scripts
 
@@ -29,8 +29,11 @@ RUN npm ci --omit=dev
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 
+ARG APP_VERSION=development
+
 ENV NODE_ENV=production
 ENV ENV=production
+ENV APP_VERSION=${APP_VERSION}
 
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 
@@ -47,4 +50,3 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=6 \
   CMD node -e "fetch('http://127.0.0.1:4001/healthz',{headers:{'x-api-key':process.env.FASTIFY_API_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/main.js"]
-
