@@ -13,11 +13,13 @@ const connectionFixtures: AmneziaConnectionFixture[] = [
   {
     name: "AmneziaWgConnection",
     clientsTablePath: AppContract.AmneziaWG.PATHS.CLIENTS_TABLE,
+    telegramRestrictCommand: `${AppContract.AmneziaWG.TELEGRAM_RESTRICT_SCRIPT} 10.8.1.2 ${AppContract.AmneziaWG.INTERFACE} ${AppContract.AmneziaWG.PATHS.WG_CONF}`,
     createConnection: () => new AmneziaWgConnection(),
   },
   {
     name: "AmneziaWg2Connection",
     clientsTablePath: AppContract.AmneziaWG2.PATHS.CLIENTS_TABLE,
+    telegramRestrictCommand: `${AppContract.AmneziaWG2.TELEGRAM_RESTRICT_SCRIPT} 10.8.1.2 ${AppContract.AmneziaWG2.INTERFACE} ${AppContract.AmneziaWG2.PATHS.WG_CONF}`,
     createConnection: () => new AmneziaWg2Connection(),
   },
 ];
@@ -92,6 +94,22 @@ describe.each(connectionFixtures)("$name", (fixture) => {
     expect(writeFile).toHaveBeenCalledWith(
       fixture.clientsTablePath,
       JSON.stringify(table),
+    );
+  });
+
+  // Тестирование построения команд ограничения трафика Telegram
+  it("builds telegram restriction commands with the protocol paths", async () => {
+    const connection = fixture.createConnection();
+    const run = vi
+      .spyOn(connection, "run")
+      .mockResolvedValue({ stdout: "", stderr: "" });
+
+    await connection.restrictPeerToTelegram("10.8.1.2");
+    expect(run).toHaveBeenLastCalledWith(fixture.telegramRestrictCommand);
+
+    await connection.removeTelegramRestriction("10.8.1.2");
+    expect(run).toHaveBeenLastCalledWith(
+      `${fixture.telegramRestrictCommand} --remove`,
     );
   });
 });

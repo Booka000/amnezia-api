@@ -185,4 +185,36 @@ export class AmneziaWgConnection implements IAmneziaConnection {
       payload,
     );
   }
+
+  /**
+   * Построить команду запуска скрипта ограничения трафика Telegram
+   */
+  private buildTelegramRestrictCommand(
+    peerIp: string,
+    action: "" | "--remove",
+  ): string {
+    return [
+      AppContract.AmneziaWG.TELEGRAM_RESTRICT_SCRIPT,
+      peerIp,
+      AppContract.AmneziaWG.INTERFACE,
+      AppContract.AmneziaWG.PATHS.WG_CONF,
+      action,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  /**
+   * Ограничить трафик peer'а только Telegram-диапазонами
+   */
+  async restrictPeerToTelegram(peerIp: string): Promise<void> {
+    await this.run(this.buildTelegramRestrictCommand(peerIp, ""));
+  }
+
+  /**
+   * Снять ограничение трафика peer'а до Telegram-диапазонов
+   */
+  async removeTelegramRestriction(peerIp: string): Promise<void> {
+    await this.run(this.buildTelegramRestrictCommand(peerIp, "--remove"));
+  }
 }

@@ -28,5 +28,6 @@ export type AmneziaConnection = AmneziaWgConnection | AmneziaWg2Connection;
 export type AmneziaConnectionFixture = {
   name: string;
   clientsTablePath: string;
+  telegramRestrictCommand: string;
   createConnection(): AmneziaConnection;
 };

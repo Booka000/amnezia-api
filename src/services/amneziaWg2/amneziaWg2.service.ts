@@ -6,6 +6,7 @@ import {
 } from "@/types/clients";
 import { APIError } from "@/utils/APIError";
 import appConfig from "@/constants/appConfig";
+import { appLogger } from "@/config/winstonLogger";
 import { AppContract } from "@/contracts/app";
 import { AmneziaBackupData } from "@/types/server";
 import { Protocol, ClientErrorCode } from "@/types/shared";
@@ -43,7 +44,7 @@ export class AmneziaWg2Service {
     `[Peer]\n` +
     `PublicKey = $SERVER_PUBLIC_KEY\n` +
     `PresharedKey = $PRESHARED_KEY\n` +
-    `AllowedIPs = 0.0.0.0/0, ::/0\n` +
+    `AllowedIPs = 0.0.0.0/0\n` +
     `$ENDPOINT_LINE` +
     `PersistentKeepalive = $KEEPALIVE\n`;
 
@@ -106,6 +107,40 @@ export class AmneziaWg2Service {
     });
 
     return changed ? updatedSections.join("[Peer]") : config;
+  }
+
+  /**
+   * Определить валидный IPv4-адрес peer'а: сначала AllowedIPs из конфига, затем userData.allowedIp
+   */
+  private resolvePeerIp(
+    currentAllowedIps: string | null,
+    userData: ClientTableEntry["userData"],
+  ): string | null {
+    const candidates = [
+      currentAllowedIps?.split(",")[0]?.trim(),
+      userData?.allowedIp,
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+
+      const ip = candidate.includes("/")
+        ? candidate.split("/")[0]
+        : candidate;
+
+      if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && ip !== "0.0.0.0") {
+        return ip;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Проверить, что AllowedIPs peer'а — это только 0.0.0.0/32 (блокировка старым способом)
+   */
+  private isLegacyBlockedIp(currentAllowedIps: string | null): boolean {
+    return currentAllowedIps?.trim() === "0.0.0.0/32";
   }
 
   /**
@@ -268,6 +303,16 @@ export class AmneziaWg2Service {
       }
     }
 
+    const disabledPeerIds = new Set<string>();
+    for (const client of clientsTable) {
+      if (
+        client?.clientId &&
+        client.userData?.status === PeerStatus.Disabled
+      ) {
+        disabledPeerIds.add(client.clientId);
+      }
+    }
+
     const peerEntries: (ClientPeer & { username: string })[] = configPeers.map(
       ({ id, allowedIps }) => {
         const runtime = dumpStats.get(id);
@@ -281,7 +326,10 @@ export class AmneziaWg2Service {
         const expiresAt = userData[id]?.expiresAt || null;
         const isBlocked =
           allowedIps.length === 1 && allowedIps[0] === "0.0.0.0/32";
-        const status = isBlocked ? PeerStatus.Disabled : PeerStatus.Active;
+        const status =
+          disabledPeerIds.has(id) || isBlocked
+            ? PeerStatus.Disabled
+            : PeerStatus.Active;
 
         return {
           username,
@@ -652,27 +700,63 @@ export class AmneziaWg2Service {
             : PeerStatus.Active
           : null);
 
-      const targetAllowedIps =
-        targetStatus === PeerStatus.Disabled
-          ? "0.0.0.0/32"
-          : targetStatus === PeerStatus.Active
-            ? userData.allowedIp
-              ? userData.allowedIp.includes("/")
-                ? userData.allowedIp
-                : `${userData.allowedIp}/32`
-              : null
-            : null;
+      const isLegacyBlocked = this.isLegacyBlockedIp(currentAllowedIps);
+      const isAlreadyRestricted =
+        userData.status === PeerStatus.Disabled && !isLegacyBlocked;
+      const currentlyDisabled =
+        userData.status === PeerStatus.Disabled || isLegacyBlocked;
+      const peerIp = this.resolvePeerIp(currentAllowedIps, userData);
 
-      if (targetAllowedIps && currentAllowedIps !== targetAllowedIps) {
-        const newConfig = this.updatePeerAllowedIps(
-          config,
-          clientId,
-          targetAllowedIps,
-        );
+      if (targetStatus === PeerStatus.Disabled && !isAlreadyRestricted) {
+        if (isLegacyBlocked && peerIp) {
+          const newConfig = this.updatePeerAllowedIps(
+            config,
+            clientId,
+            `${peerIp}/32`,
+          );
 
-        if (newConfig !== config) {
-          await this.amneziaWg2.writeWgConfig(newConfig);
-          await this.amneziaWg2.syncWgConfig();
+          if (newConfig !== config) {
+            await this.amneziaWg2.writeWgConfig(newConfig);
+            await this.amneziaWg2.syncWgConfig();
+          }
+        }
+
+        if (peerIp) {
+          await this.amneziaWg2.restrictPeerToTelegram(peerIp);
+        } else {
+          appLogger.warn(
+            `Не удалось определить IP peer'а ${clientId} — ограничение Telegram не применено`,
+          );
+        }
+
+        userData.status = PeerStatus.Disabled;
+        entry.userData = userData;
+        await this.amneziaWg2.writeClientsTable(table);
+      } else if (targetStatus === PeerStatus.Active && currentlyDisabled) {
+        if (!peerIp) {
+          appLogger.warn(
+            `Не удалось определить IP peer'а ${clientId} — ограничение Telegram не снято`,
+          );
+        } else {
+          await this.amneziaWg2.removeTelegramRestriction(peerIp);
+
+          if (isLegacyBlocked) {
+            const freshConfig = await this.amneziaWg2.readWgConfig();
+            const newConfig = this.updatePeerAllowedIps(
+              freshConfig,
+              clientId,
+              `${peerIp}/32`,
+            );
+
+            if (newConfig !== freshConfig) {
+              await this.amneziaWg2.writeWgConfig(newConfig);
+              await this.amneziaWg2.syncWgConfig();
+            }
+          }
+
+          userData.status = PeerStatus.Active;
+          entry.userData = userData;
+          await this.amneziaWg2.writeClientsTable(table);
         }
       }
     }
@@ -689,6 +773,11 @@ export class AmneziaWg2Service {
     // Сохраняем длину таблицы
     const before = table.length;
 
+    // Ищем удаляемую запись, чтобы знать IP peer'а
+    const removedEntry = table.find(
+      (x) => ((x && (x.clientId || x.publicKey)) || "") === clientId,
+    );
+
     // Удаляем клиента
     table = table.filter(
       (x) => ((x && (x.clientId || x.publicKey)) || "") !== clientId,
@@ -704,6 +793,11 @@ export class AmneziaWg2Service {
     const config = await this.amneziaWg2.readWgConfig();
 
     if (config) {
+      const peerIp = this.resolvePeerIp(
+        this.getPeerAllowedIps(config, clientId),
+        removedEntry?.userData,
+      );
+
       // Разбиваем конфиг на секции
       const sections = config.split("[Peer]");
 
@@ -723,6 +817,17 @@ export class AmneziaWg2Service {
 
       // Применяем
       await this.amneziaWg2.syncWgConfig();
+
+      // Снимаем ограничение Telegram, чтобы не осталось iptables-цепочки и PostUp-строки
+      if (peerIp) {
+        try {
+          await this.amneziaWg2.removeTelegramRestriction(peerIp);
+        } catch (err) {
+          appLogger.warn(
+            `Не удалось снять ограничение Telegram для удалённого клиента ${clientId} (${peerIp}): ${err}`,
+          );
+        }
+      }
     }
 
     return true;
@@ -730,7 +835,7 @@ export class AmneziaWg2Service {
 
   /**
    * Заблокировать (отключить) всех клиентов с истекшим сроком действия
-   * Записи не удаляются: peer'ам выставляется AllowedIPs = 0.0.0.0/32
+   * Записи не удаляются: трафик peer'ов ограничивается только Telegram-диапазонами
    */
   async disableExpiredClients(): Promise<number> {
     const now = Math.floor(Date.now() / 1000);
@@ -747,6 +852,7 @@ export class AmneziaWg2Service {
     const config = await this.amneziaWg2.readWgConfig();
     let updatedConfig = config;
     let updatedTable = false;
+    const restrictedIps: string[] = [];
 
     if (config) {
       for (const entry of expired) {
@@ -754,7 +860,10 @@ export class AmneziaWg2Service {
         if (!clientId) continue;
 
         const userData = entry.userData ?? {};
-        const currentAllowedIps = this.getPeerAllowedIps(config, clientId);
+        const currentAllowedIps = this.getPeerAllowedIps(
+          updatedConfig,
+          clientId,
+        );
 
         if (
           !userData.allowedIp &&
@@ -769,11 +878,36 @@ export class AmneziaWg2Service {
           updatedTable = true;
         }
 
-        updatedConfig = this.updatePeerAllowedIps(
-          updatedConfig,
-          clientId,
-          "0.0.0.0/32",
-        );
+        const isLegacyBlocked = this.isLegacyBlockedIp(currentAllowedIps);
+
+        if (userData.status === PeerStatus.Disabled && !isLegacyBlocked) {
+          continue;
+        }
+
+        const peerIp = this.resolvePeerIp(currentAllowedIps, userData);
+
+        if (!peerIp) {
+          appLogger.warn(
+            `Не удалось определить IP peer'а ${clientId} — ограничение Telegram не применено`,
+          );
+          continue;
+        }
+
+        if (isLegacyBlocked) {
+          updatedConfig = this.updatePeerAllowedIps(
+            updatedConfig,
+            clientId,
+            `${peerIp}/32`,
+          );
+        }
+
+        if (userData.status !== PeerStatus.Disabled) {
+          userData.status = PeerStatus.Disabled;
+          entry.userData = userData;
+          updatedTable = true;
+        }
+
+        restrictedIps.push(peerIp);
       }
     }
 
@@ -784,6 +918,10 @@ export class AmneziaWg2Service {
     if (config && updatedConfig !== config) {
       await this.amneziaWg2.writeWgConfig(updatedConfig);
       await this.amneziaWg2.syncWgConfig();
+    }
+
+    for (const peerIp of restrictedIps) {
+      await this.amneziaWg2.restrictPeerToTelegram(peerIp);
     }
 
     return expired.length;

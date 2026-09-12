@@ -508,6 +508,33 @@ deploy_docker() {
   return 1
 }
 
+# Установка скрипта ограничения трафика Telegram в контейнер amnezia-awg2
+setup_telegram_restrict() {
+  step "Установка telegram-restrict.sh (amnezia-awg2)"
+
+  if ! command -v docker >/dev/null 2>&1; then
+    warn "Docker не установлен — telegram-restrict.sh пропущен"
+    return 0
+  fi
+
+  if ! $SUDO docker ps --format '{{.Names}}' | grep -qx "amnezia-awg2"; then
+    info "amnezia-awg2 не найден — telegram-restrict.sh пропущен"
+    return 0
+  fi
+
+  if [ ! -f "$ROOT_DIR/scripts/telegram-restrict.sh" ]; then
+    err "scripts/telegram-restrict.sh не найден"
+    return 1
+  fi
+
+  run_quiet "docker cp telegram-restrict.sh" \
+    $SUDO docker cp "$ROOT_DIR/scripts/telegram-restrict.sh" amnezia-awg2:/usr/local/bin/telegram-restrict.sh
+  run_quiet "chmod +x telegram-restrict.sh" \
+    $SUDO docker exec amnezia-awg2 chmod +x /usr/local/bin/telegram-restrict.sh
+
+  ok "telegram-restrict.sh установлен в контейнер amnezia-awg2"
+}
+
 # Настройка Xray Stats API
 setup_xray_stats() {
   step "Настройка Xray Stats API"
@@ -686,6 +713,7 @@ main() {
   update_repo
   setup_env
   deploy_docker
+  setup_telegram_restrict
   setup_xray_stats
   setup_nginx
   show_completion

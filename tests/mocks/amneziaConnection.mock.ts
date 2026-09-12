@@ -105,6 +105,14 @@ export const createAmneziaConnectionMock = ({
     },
   );
 
+  // Ограничить трафик peer'а до Telegram-диапазонов
+  const restrictPeerToTelegram =
+    vi.fn<IAmneziaConnection["restrictPeerToTelegram"]>(async () => undefined);
+
+  // Снять ограничение трафика peer'а до Telegram-диапазонов
+  const removeTelegramRestriction =
+    vi.fn<IAmneziaConnection["removeTelegramRestriction"]>(async () => undefined);
+
   const connection: IAmneziaConnection = {
     run,
     readFile,
@@ -116,6 +124,8 @@ export const createAmneziaConnectionMock = ({
     getServerPublicKey,
     readClientsTable,
     writeClientsTable,
+    restrictPeerToTelegram,
+    removeTelegramRestriction,
   };
 
   return {
@@ -132,6 +142,8 @@ export const createAmneziaConnectionMock = ({
       getServerPublicKey,
       readClientsTable,
       writeClientsTable,
+      restrictPeerToTelegram,
+      removeTelegramRestriction,
     },
   };
 };

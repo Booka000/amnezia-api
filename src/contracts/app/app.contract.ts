@@ -19,10 +19,13 @@ export const AppContract = {
 
     // Значения по умолчанию
     DEFAULTS: {
-      MTU: "1376",
-      KEEPALIVE: "25",
+      MTU: "1280",
+      KEEPALIVE: "10",
       TRANSPORT: "udp",
     } as const,
+
+    // Путь к скрипту ограничения трафика Telegram внутри контейнера
+    TELEGRAM_RESTRICT_SCRIPT: "/usr/local/bin/telegram-restrict.sh",
   },
 
   // Константы для AmneziaWG 2.0
@@ -43,10 +46,13 @@ export const AppContract = {
 
     // Значения по умолчанию
     DEFAULTS: {
-      MTU: "1376",
-      KEEPALIVE: "25",
+      MTU: "1280",
+      KEEPALIVE: "10",
       TRANSPORT: "udp",
     } as const,
+
+    // Путь к скрипту ограничения трафика Telegram внутри контейнера
+    TELEGRAM_RESTRICT_SCRIPT: "/usr/local/bin/telegram-restrict.sh",
   },
 
   // Константы для Xray

@@ -1,4 +1,5 @@
 import type { CommandResult } from "@/types/shared";
+import type { PeerStatus } from "@/types/clients";
 
 export type RunOptions = {
   timeout?: number;
@@ -13,6 +14,7 @@ export type ClientTableEntry = {
     creationDate?: string;
     expiresAt?: number;
     allowedIp?: string;
+    status?: PeerStatus;
   };
 };
 
@@ -27,4 +29,6 @@ export interface IAmneziaConnection {
   getServerPublicKey(): Promise<string>;
   readClientsTable(): Promise<ClientTableEntry[]>;
   writeClientsTable(table: ClientTableEntry[]): Promise<void>;
+  restrictPeerToTelegram(peerIp: string): Promise<void>;
+  removeTelegramRestriction(peerIp: string): Promise<void>;
 }

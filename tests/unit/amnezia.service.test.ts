@@ -129,26 +129,6 @@ describe.each(protocolFixtures)("$name", (fixture) => {
     expect(connection.spies.syncWgConfig).toHaveBeenCalledOnce();
   });
 
-  // Тестирование отключения и повторного включения клиента
-  it("disables a client and restores its original allowed IP", async () => {
-    const { service, connection } = createSubject();
-
-    await expect(
-      service.updateClient("active-id", { status: PeerStatus.Disabled }),
-    ).resolves.toBe(true);
-    expect(connection.state.wgConfig).toMatch(
-      /PublicKey = active-id\nAllowedIPs = 0\.0\.0\.0\/32/,
-    );
-
-    await expect(
-      service.updateClient("active-id", { status: PeerStatus.Active }),
-    ).resolves.toBe(true);
-    expect(connection.state.wgConfig).toMatch(
-      /PublicKey = active-id\nAllowedIPs = 10\.8\.1\.2\/32/,
-    );
-    expect(connection.spies.syncWgConfig).toHaveBeenCalledTimes(2);
-  });
-
   // Тестирование удаления клиента из таблицы и конфигурации
   it("deletes a client without removing other peers", async () => {
     const { service, connection } = createSubject();
@@ -162,33 +142,6 @@ describe.each(protocolFixtures)("$name", (fixture) => {
     expect(connection.spies.syncWgConfig).toHaveBeenCalledOnce();
 
     await expect(service.deleteClient("missing-id")).resolves.toBe(false);
-  });
-
-  // Тестирование отключения клиентов с истекшим сроком действия
-  it("disables expired clients and preserves their original IP", async () => {
-    const connection = createAmneziaConnectionMock({
-      wgConfig: AMNEZIA_WG_CONFIG_FIXTURE,
-      clientsTable: [
-        {
-          clientId: "active-id",
-          userData: {
-            clientName: "expired",
-            expiresAt: 1_700_000_000,
-          },
-        },
-      ],
-    });
-    const { service } = createSubject(connection);
-
-    await expect(service.disableExpiredClients()).resolves.toBe(1);
-
-    expect(connection.state.clientsTable[0]?.userData?.allowedIp).toBe(
-      "10.8.1.2",
-    );
-    expect(connection.state.wgConfig).toMatch(
-      /PublicKey = active-id\nAllowedIPs = 0\.0\.0\.0\/32/,
-    );
-    expect(connection.spies.syncWgConfig).toHaveBeenCalledOnce();
   });
 
   // Тестирование экспорта и импорта резервной копии
@@ -377,5 +330,360 @@ AllowedIPs = 10.8.1.2/32
     expect(clients).toHaveLength(1);
     expect(clients[0]?.peers).toHaveLength(1);
     expect(clients[0]?.peers[0]?.id).toBe("in-config");
+  });
+});
+
+/**
+ * AmneziaWgService: отключение клиента — блокировка через AllowedIPs = 0.0.0.0/32
+ */
+describe("AmneziaWgService — legacy AllowedIPs blocking", () => {
+  const createSubject = (connection = createAmneziaConnectionMock()) => ({
+    service: new AmneziaWgService(connection.connection),
+    connection,
+  });
+
+  it("disables a client and restores its original allowed IP", async () => {
+    const { service, connection } = createSubject();
+
+    await expect(
+      service.updateClient("active-id", { status: PeerStatus.Disabled }),
+    ).resolves.toBe(true);
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 0\.0\.0\.0\/32/,
+    );
+    expect(connection.spies.restrictPeerToTelegram).not.toHaveBeenCalled();
+
+    await expect(
+      service.updateClient("active-id", { status: PeerStatus.Active }),
+    ).resolves.toBe(true);
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 10\.8\.1\.2\/32/,
+    );
+    expect(connection.spies.syncWgConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it("disables expired clients and preserves their original IP", async () => {
+    const connection = createAmneziaConnectionMock({
+      wgConfig: AMNEZIA_WG_CONFIG_FIXTURE,
+      clientsTable: [
+        {
+          clientId: "active-id",
+          userData: {
+            clientName: "expired",
+            expiresAt: 1_700_000_000,
+          },
+        },
+      ],
+    });
+    const { service } = createSubject(connection);
+
+    await expect(service.disableExpiredClients()).resolves.toBe(1);
+
+    expect(connection.state.clientsTable[0]?.userData?.allowedIp).toBe(
+      "10.8.1.2",
+    );
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 0\.0\.0\.0\/32/,
+    );
+    expect(connection.spies.syncWgConfig).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * AmneziaWg2Service: отключение клиента — ограничение трафика только Telegram
+ * через scripts/telegram-restrict.sh внутри контейнера amnezia-awg2.
+ */
+describe("AmneziaWg2Service — telegram restriction", () => {
+  const createSubject = (connection = createAmneziaConnectionMock()) => ({
+    service: new AmneziaWg2Service(connection.connection),
+    connection,
+  });
+
+  const findEntry = (connection: ReturnType<typeof createAmneziaConnectionMock>, clientId: string) =>
+    connection.state.clientsTable.find((x) => x?.clientId === clientId);
+
+  it("restricts a disabled peer to Telegram and keeps its config IP", async () => {
+    const { service, connection } = createSubject();
+
+    await expect(
+      service.updateClient("active-id", { status: PeerStatus.Disabled }),
+    ).resolves.toBe(true);
+
+    expect(connection.spies.restrictPeerToTelegram).toHaveBeenCalledOnce();
+    expect(connection.spies.restrictPeerToTelegram).toHaveBeenCalledWith(
+      "10.8.1.2",
+    );
+    expect(connection.spies.removeTelegramRestriction).not.toHaveBeenCalled();
+    expect(connection.spies.writeWgConfig).not.toHaveBeenCalled();
+    expect(connection.spies.syncWgConfig).not.toHaveBeenCalled();
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 10\.8\.1\.2\/32/,
+    );
+    expect(findEntry(connection, "active-id")?.userData?.status).toBe(
+      PeerStatus.Disabled,
+    );
+  });
+
+  it("reports a telegram-restricted peer as disabled with its real IP", async () => {
+    const { service } = createSubject();
+
+    await service.updateClient("active-id", { status: PeerStatus.Disabled });
+
+    const clients = await service.getClients();
+    const alice = clients.find((c) => c.username === "alice");
+
+    expect(alice?.peers[0]).toMatchObject({
+      id: "active-id",
+      status: PeerStatus.Disabled,
+      allowedIps: ["10.8.1.2/32"],
+    });
+  });
+
+  it("reenables a peer by removing the Telegram restriction", async () => {
+    const { service, connection } = createSubject();
+
+    await service.updateClient("active-id", { status: PeerStatus.Disabled });
+    await expect(
+      service.updateClient("active-id", { status: PeerStatus.Active }),
+    ).resolves.toBe(true);
+
+    expect(connection.spies.removeTelegramRestriction).toHaveBeenCalledOnce();
+    expect(connection.spies.removeTelegramRestriction).toHaveBeenCalledWith(
+      "10.8.1.2",
+    );
+    expect(connection.spies.writeWgConfig).not.toHaveBeenCalled();
+    expect(connection.spies.syncWgConfig).not.toHaveBeenCalled();
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 10\.8\.1\.2\/32/,
+    );
+    expect(findEntry(connection, "active-id")?.userData?.status).toBe(
+      PeerStatus.Active,
+    );
+  });
+
+  it("does not touch the container when the requested state is already applied", async () => {
+    const { service, connection } = createSubject();
+
+    await expect(
+      service.updateClient("active-id", { status: PeerStatus.Active }),
+    ).resolves.toBe(true);
+    expect(connection.spies.removeTelegramRestriction).not.toHaveBeenCalled();
+
+    await service.updateClient("active-id", { status: PeerStatus.Disabled });
+    await expect(
+      service.updateClient("active-id", { status: PeerStatus.Disabled }),
+    ).resolves.toBe(true);
+
+    expect(connection.spies.restrictPeerToTelegram).toHaveBeenCalledOnce();
+  });
+
+  it("restores the IP of a legacy-blocked peer before restricting it", async () => {
+    const wgConfig = `[Interface]
+Address = 10.8.1.1/24
+ListenPort = 51820
+
+[Peer]
+PublicKey = legacy-id
+AllowedIPs = 0.0.0.0/32
+`;
+    const connection = createAmneziaConnectionMock({
+      wgConfig,
+      clientsTable: [
+        {
+          clientId: "legacy-id",
+          userData: { clientName: "legacy", allowedIp: "10.8.1.5" },
+        },
+      ],
+    });
+    const { service } = createSubject(connection);
+
+    await expect(
+      service.updateClient("legacy-id", { status: PeerStatus.Disabled }),
+    ).resolves.toBe(true);
+
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = legacy-id\nAllowedIPs = 10\.8\.1\.5\/32/,
+    );
+    expect(connection.spies.syncWgConfig).toHaveBeenCalledOnce();
+    expect(connection.spies.restrictPeerToTelegram).toHaveBeenCalledWith(
+      "10.8.1.5",
+    );
+    expect(
+      connection.state.clientsTable.find((x) => x?.clientId === "legacy-id")
+        ?.userData?.status,
+    ).toBe(PeerStatus.Disabled);
+  });
+
+  it("removes the restriction and restores the IP when enabling a legacy-blocked peer", async () => {
+    const wgConfig = `[Interface]
+Address = 10.8.1.1/24
+ListenPort = 51820
+
+[Peer]
+PublicKey = legacy-id
+AllowedIPs = 0.0.0.0/32
+`;
+    const connection = createAmneziaConnectionMock({
+      wgConfig,
+      clientsTable: [
+        {
+          clientId: "legacy-id",
+          userData: { clientName: "legacy", allowedIp: "10.8.1.5" },
+        },
+      ],
+    });
+    const { service } = createSubject(connection);
+
+    await expect(
+      service.updateClient("legacy-id", { status: PeerStatus.Active }),
+    ).resolves.toBe(true);
+
+    expect(connection.spies.removeTelegramRestriction).toHaveBeenCalledWith(
+      "10.8.1.5",
+    );
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = legacy-id\nAllowedIPs = 10\.8\.1\.5\/32/,
+    );
+    expect(connection.spies.syncWgConfig).toHaveBeenCalledOnce();
+    expect(
+      connection.state.clientsTable.find((x) => x?.clientId === "legacy-id")
+        ?.userData?.status,
+    ).toBe(PeerStatus.Active);
+  });
+
+  it("restricts expired clients to Telegram without zeroing their IPs", async () => {
+    const connection = createAmneziaConnectionMock({
+      clientsTable: [
+        {
+          clientId: "active-id",
+          userData: {
+            clientName: "expired",
+            expiresAt: 1_700_000_000,
+          },
+        },
+      ],
+    });
+    const { service } = createSubject(connection);
+
+    await expect(service.disableExpiredClients()).resolves.toBe(1);
+
+    expect(connection.state.clientsTable[0]?.userData?.allowedIp).toBe(
+      "10.8.1.2",
+    );
+    expect(connection.state.clientsTable[0]?.userData?.status).toBe(
+      PeerStatus.Disabled,
+    );
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 10\.8\.1\.2\/32/,
+    );
+    expect(connection.spies.restrictPeerToTelegram).toHaveBeenCalledWith(
+      "10.8.1.2",
+    );
+    expect(connection.spies.writeWgConfig).not.toHaveBeenCalled();
+    expect(connection.spies.syncWgConfig).not.toHaveBeenCalled();
+  });
+
+  it("skips expired clients that are already telegram-restricted", async () => {
+    const connection = createAmneziaConnectionMock({
+      clientsTable: [
+        {
+          clientId: "active-id",
+          userData: {
+            clientName: "expired",
+            expiresAt: 1_700_000_000,
+            allowedIp: "10.8.1.2",
+            status: PeerStatus.Disabled,
+          },
+        },
+      ],
+    });
+    const { service } = createSubject(connection);
+
+    await expect(service.disableExpiredClients()).resolves.toBe(1);
+
+    expect(connection.spies.restrictPeerToTelegram).not.toHaveBeenCalled();
+  });
+
+  it("removes the Telegram restriction when deleting a client", async () => {
+    const { service, connection } = createSubject();
+
+    await expect(service.deleteClient("active-id")).resolves.toBe(true);
+
+    expect(connection.spies.removeTelegramRestriction).toHaveBeenCalledWith(
+      "10.8.1.2",
+    );
+    expect(connection.state.wgConfig).not.toContain("PublicKey = active-id");
+  });
+
+  it("still deletes a client when restriction cleanup fails", async () => {
+    const connection = createAmneziaConnectionMock();
+    connection.spies.removeTelegramRestriction.mockRejectedValueOnce(
+      new Error("script missing"),
+    );
+    const { service } = createSubject(connection);
+
+    await expect(service.deleteClient("active-id")).resolves.toBe(true);
+
+    expect(connection.state.wgConfig).not.toContain("PublicKey = active-id");
+    expect(connection.state.clientsTable).toHaveLength(1);
+  });
+
+  it("keeps PostUp hooks in the interface section when rewriting the config", async () => {
+    const postUpLine =
+      "PostUp = /usr/local/bin/telegram-restrict.sh 10.8.1.2 awg0 /opt/amnezia/awg/awg0.conf";
+    const wgConfig = `[Interface]
+Address = 10.8.1.1/24
+ListenPort = 51820
+${postUpLine}
+
+[Peer]
+PublicKey = active-id
+AllowedIPs = 0.0.0.0/32
+`;
+    const connection = createAmneziaConnectionMock({
+      wgConfig,
+      clientsTable: [
+        {
+          clientId: "active-id",
+          userData: { clientName: "alice", allowedIp: "10.8.1.2" },
+        },
+      ],
+    });
+    const { service } = createSubject(connection);
+
+    const clients = await service.getClients();
+    expect(clients[0]?.peers[0]).toMatchObject({
+      id: "active-id",
+      status: PeerStatus.Disabled,
+      allowedIps: ["0.0.0.0/32"],
+    });
+
+    await service.updateClient("active-id", { status: PeerStatus.Active });
+
+    expect(connection.spies.writeWgConfig).toHaveBeenCalledOnce();
+    expect(connection.state.wgConfig).toContain(postUpLine);
+    expect(connection.state.wgConfig).toMatch(
+      /PublicKey = active-id\nAllowedIPs = 10\.8\.1\.2\/32/,
+    );
+  });
+
+  it("creates a client on a config that contains PostUp hooks", async () => {
+    const postUpLine =
+      "PostUp = /usr/local/bin/telegram-restrict.sh 10.8.1.2 awg0 /opt/amnezia/awg/awg0.conf";
+    const wgConfig = AMNEZIA_WG_CONFIG_FIXTURE.replace(
+      "[Interface]\n",
+      `[Interface]\n${postUpLine}\n`,
+    );
+    const connection = createAmneziaConnectionMock({ wgConfig });
+    const { service } = createSubject(connection);
+
+    const result = await service.createClient("charlie");
+
+    expect(result.id).toBe("generated-client-id");
+    expect(connection.state.wgConfig).toContain("PublicKey = generated-client-id");
+    expect(connection.state.wgConfig).toContain(postUpLine);
+    expect(connection.state.wgConfig).toMatch(
+      /AllowedIPs = 10\.8\.1\.1\/32/,
+    );
   });
 });
