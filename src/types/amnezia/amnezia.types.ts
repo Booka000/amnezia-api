@@ -6,6 +6,14 @@ export type RunOptions = {
   maxBufferBytes?: number;
 };
 
+export enum AwgVersion {
+  V1_5 = "1.5",
+  V2 = "2",
+  V3_1 = "3.1",
+}
+
+export type AwgParams = Record<string, string>;
+
 export type ClientTableEntry = {
   clientId?: string;
   publicKey?: string;

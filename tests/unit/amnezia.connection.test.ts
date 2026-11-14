@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ClientTableEntry } from "@/types/amnezia";
 import type { AmneziaConnectionFixture } from "../types";
 import { AmneziaWgConnection } from "@/helpers/amneziaWgConnection";
-import { AmneziaWg2Connection } from "@/helpers/amneziaWg2Connection";
+import { AmneziaWg3Connection } from "@/helpers/amneziaWg3Connection";
 
 /**
  * Создать фикстуры соединений AmneziaWG
@@ -17,10 +17,10 @@ const connectionFixtures: AmneziaConnectionFixture[] = [
     createConnection: () => new AmneziaWgConnection(),
   },
   {
-    name: "AmneziaWg2Connection",
-    clientsTablePath: AppContract.AmneziaWG2.PATHS.CLIENTS_TABLE,
-    telegramRestrictCommand: `${AppContract.AmneziaWG2.TELEGRAM_RESTRICT_SCRIPT} 10.8.1.2 ${AppContract.AmneziaWG2.INTERFACE} ${AppContract.AmneziaWG2.PATHS.WG_CONF}`,
-    createConnection: () => new AmneziaWg2Connection(),
+    name: "AmneziaWg3Connection",
+    clientsTablePath: AppContract.AmneziaWG3.PATHS.CLIENTS_TABLE,
+    telegramRestrictCommand: `${AppContract.AmneziaWG3.TELEGRAM_RESTRICT_SCRIPT} 10.8.1.2 ${AppContract.AmneziaWG3.INTERFACE} ${AppContract.AmneziaWG3.PATHS.WG_CONF}`,
+    createConnection: () => new AmneziaWg3Connection(),
   },
 ];
 

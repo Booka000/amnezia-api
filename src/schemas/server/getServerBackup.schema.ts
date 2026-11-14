@@ -60,7 +60,7 @@ export const getServerBackupSchema = {
             type: "string",
             enum: Object.values(Protocol),
           },
-          example: [Protocol.AMNEZIAWG, Protocol.AMNEZIAWG2, Protocol.XRAY],
+          example: [Protocol.AMNEZIAWG, Protocol.AMNEZIAWG3, Protocol.XRAY],
         },
         amnezia: {
           type: "object",
@@ -102,7 +102,7 @@ export const getServerBackupSchema = {
             ],
           },
         },
-        amneziaWg2: {
+        amneziaWg3: {
           type: "object",
           required: ["wgConfig", "presharedKey", "serverPublicKey", "clients"],
           properties: {
@@ -120,7 +120,7 @@ export const getServerBackupSchema = {
             },
             clients: {
               type: "array",
-              description: "Содержимое таблицы клиентов AmneziaWG 2.0",
+              description: "Содержимое таблицы клиентов AmneziaWG 3.1",
               items: clientsTableItemSchema,
             },
           },

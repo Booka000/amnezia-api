@@ -28,9 +28,9 @@ export const AppContract = {
     TELEGRAM_RESTRICT_SCRIPT: "/usr/local/bin/telegram-restrict.sh",
   },
 
-  // Константы для AmneziaWG 2.0
-  AmneziaWG2: {
-    // Имя Docker-контейнера
+  // Константы для AmneziaWG 3.1
+  AmneziaWG3: {
+    // Имя Docker-контейнера. Контейнер тот же, что у AmneziaWG 2.0
     DOCKER_CONTAINER: "amnezia-awg2",
 
     // Имя интерфейса
@@ -48,7 +48,17 @@ export const AppContract = {
     DEFAULTS: {
       MTU: "1280",
       KEEPALIVE: "10",
+      // В AmneziaWG 3.1 PersistentKeepalive задается диапазоном
+      KEEPALIVE_V3: "25-35",
       TRANSPORT: "udp",
+    } as const,
+
+    // Значения параметров на случай, если серверный конфиг 2.0
+    // содержит пустые/неинициализированные значения
+    PARAM_DEFAULTS: {
+      S3: "20",
+      S4: "23",
+      I1: "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>",
     } as const,
 
     // Путь к скрипту ограничения трафика Telegram внутри контейнера
@@ -85,6 +95,9 @@ export const AppContract = {
 
     // Граница, выше которой значение lastHandshake считается заданным в наносекундах
     HANDSHAKE_NANO_THRESHOLD: 1_000_000_000_000,
+
+    // Значение выключенного переключателя AmneziaWG 3.1
+    TOGGLE_OFF: "off",
   } as const,
 
   // DNS-серверы по умолчанию для клиентских конфигов
